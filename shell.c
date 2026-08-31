@@ -6,6 +6,7 @@
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 64
+#define MAX_COMMANDS 32
 
 // definir los operadores para la ejecucion de multiples comandos
 typedef enum {
@@ -16,9 +17,87 @@ typedef enum {
     OP_SEMICOLON
 } Operador;
 
+typedef struct {
+    char *args[MAX_ARGS];
+    int arg_count;
+    Operador operador;
+} Comando;
+
+Operador identificar_operador(const char *pos) {
+    if (strncmp(pos, "&&", 2) == 0) {
+        return OP_AND;
+    } else if (strncmp(pos, "||", 2) == 0) {
+        return OP_OR;
+    } else if (*pos == '|' && *(pos + 1) != '|') {
+        return OP_PIPE;
+    } else if (*pos == ';') {
+        return OP_SEMICOLON;
+    }
+    return OP_NONE;
+}
+
+int get_largo_operador(Operador op) {
+    switch (op) {
+        case OP_AND:
+        case OP_OR:
+            return 2;
+        case OP_PIPE:
+        case OP_SEMICOLON:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+// funcion para parsear los comandos de entrada y almacenarlos en un arreglo
+int parsear_comandos(char *input, Comando comandos[]) {
+    int cmd_count = 0;
+    char *inicio = input;
+
+    while (*inicio != '\0' && cmd_count < MAX_COMMANDS) {
+        char *pos = inicio;
+        Operador op = OP_NONE;
+
+        // buscar el siguiente operador en la entrada
+        while (*pos != '\0') {
+            op = identificar_operador(pos);
+            if (op != OP_NONE) break;
+            pos++;
+        }
+
+        // si se encuentra un operador, reemplazarlo con '\0' para separar el comando
+        *pos = '\0';
+
+        char *token = strtok(inicio, " ");
+        int arg_count = 0;
+
+        // almacenar los args del comando
+        while (token != NULL && arg_count < MAX_ARGS - 1) {
+            comandos[cmd_count].args[arg_count++] = token;
+            token = strtok(NULL, " \t");
+        }
+
+        comandos[cmd_count].args[arg_count] = NULL;
+        comandos[cmd_count].arg_count = arg_count;
+        comandos[cmd_count].operador = op;
+
+        if (arg_count > 0) cmd_count++; // solo contar comandos con argumentos validos
+
+        if (op == OP_NONE) break;
+
+        inicio = pos + get_largo_operador(op); // avanzar el puntero de inicio al siguiente comando
+
+        while (*inicio == ' ' || *inicio == '\t') inicio++; // saltar espacios en blanco
+    }
+
+    return cmd_count;
+}
+
+// funcion para ejecutar un comando individual
 int ejecutar_comando(char *args[]) {
     if (args[0] == NULL) return 0;
 
+    // manejar el comando "cd"
     if (strcmp(args[0], "cd") == 0) {
         const char *path;
 
@@ -26,7 +105,7 @@ int ejecutar_comando(char *args[]) {
             path = getenv("HOME");
 
             if (path == NULL) {
-                fprintf(stderr, "cd: HOME no definido\n");
+                fprintf(stderr, "\e[31mcd: HOME no definido\e[0m\n");
                 return EXIT_FAILURE;
             }
         } else {
@@ -34,7 +113,7 @@ int ejecutar_comando(char *args[]) {
         }
 
         if (chdir(path) < 0) {
-            perror("cd");
+            perror("\e[31mcd fallido\e[0m");
             return EXIT_FAILURE;
         }
 
@@ -45,14 +124,14 @@ int ejecutar_comando(char *args[]) {
     pid_t pid = fork();
 
     if (pid < 0) {
-        perror("fork fallido");
+        perror("\e[31mfork fallido\e[0m");
         return -1;
     }
 
     // el proceso hijo ejecuta el comando solicitado
     if (pid == 0) {
         execvp(args[0], args);
-        perror("exec fallido");
+        perror("\e[31mexec fallido\e[0m");
         exit(EXIT_FAILURE);
     }
 
@@ -64,13 +143,31 @@ int ejecutar_comando(char *args[]) {
     return -1;
 }
 
+// funcion para ejecutar una lista de comandos
+void ejecutar_comandos(Comando comandos[], int cmd_count) {
+    int ultimo_exit_code = EXIT_SUCCESS;
+
+    for (int i = 0; i < cmd_count; i++) {
+        if (i > 0) {
+            Operador last_op = comandos[i - 1].operador;
+
+            // salta el comando si el ultimo comando antes del && fallo
+            if (last_op == OP_AND && ultimo_exit_code != EXIT_SUCCESS) continue;
+
+            // salta el comando si el ultimo comando antes del || tuvo exito
+            if (last_op == OP_OR && ultimo_exit_code == EXIT_SUCCESS) continue;
+        }
+
+        ultimo_exit_code = ejecutar_comando(comandos[i].args);
+    }
+}
+
 int main() {
     char input[MAX_INPUT];
-    char *args[MAX_ARGS];
-    int arg_count;
+    Comando comandos[MAX_COMMANDS];
 
     while (1) {
-        printf("shell$ ");
+        printf("\e[32mshell\e[0m$ ");
         fflush(stdout); // obliga al sistema a escribir de inmediato el prompt
 
         if (fgets(input, sizeof(input), stdin) == NULL) break;
@@ -83,16 +180,10 @@ int main() {
 
         if (strcmp(input, "exit") == 0) break;
 
-        char *token = strtok(input, " ");
-        arg_count = 0;
+        // almacena los comandos parseados en un arreglo junto a la cantidad de comandos
+        int cmd_count = parsear_comandos(input, comandos);
 
-        while (token != NULL && arg_count < MAX_ARGS - 1) {
-            args[arg_count++] = token;
-            token = strtok(NULL, " ");
-        }
-        args[arg_count] = NULL;
-
-        int exit_code = ejecutar_comando(args);
+        ejecutar_comandos(comandos, cmd_count);
     }
 
     return EXIT_SUCCESS;
