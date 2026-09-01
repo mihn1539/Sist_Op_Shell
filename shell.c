@@ -85,9 +85,9 @@ int parsear_comandos(char *input, Comando comandos[]) {
 
         if (op == OP_NONE) break;
 
-        inicio = pos + get_largo_operador(op); // avanzar el puntero de inicio al siguiente comando
-
-        while (*inicio == ' ' || *inicio == '\t') inicio++; // saltar espacios en blanco
+        // este bloque logra que los comandos se parseen correctamente, haya o no haya espacios en blanco entre el operador y el comando
+        inicio = pos + get_largo_operador(op);
+        while (*inicio == ' ' || *inicio == '\t') inicio++;
     }
 
     return cmd_count;
@@ -101,6 +101,7 @@ int ejecutar_comando(char *args[]) {
     if (strcmp(args[0], "cd") == 0) {
         const char *path;
 
+        // si el argumento es nulo o "~", se cambia al directorio HOME
         if (args[1] == NULL || strcmp(args[1], "~") == 0) {
             path = getenv("HOME");
 
@@ -135,15 +136,17 @@ int ejecutar_comando(char *args[]) {
         exit(EXIT_FAILURE);
     }
 
+    // el proceso padre espera a que el hijo termine y obtiene su estado de salida
     int status;
     waitpid(pid, &status, 0);
     
+    // devuelve el código de salida del proceso hijo si terminó normalmente
     if (WIFEXITED(status)) return WEXITSTATUS(status);
 
     return -1;
 }
 
-// funcion para ejecutar una lista de comandos
+// funcion para ejecutar una lista de comandos (funciona de a pares si hay mas de dos comandos)
 void ejecutar_comandos(Comando comandos[], int cmd_count) {
     int ultimo_exit_code = EXIT_SUCCESS;
 
@@ -178,7 +181,7 @@ int main() {
         // avanza a la siguiente iteración imprimiendo el prompt nuevamente
         if (strlen(input) == 0) continue;
 
-        if (strcmp(input, "exit") == 0) break;
+        if (strcmp(input, "exit") == 0) break; // salir del bucle y terminar el programa
 
         // almacena los comandos parseados en un arreglo junto a la cantidad de comandos
         int cmd_count = parsear_comandos(input, comandos);
