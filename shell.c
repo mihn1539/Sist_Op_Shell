@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 64
@@ -165,12 +166,38 @@ void ejecutar_comandos(Comando comandos[], int cmd_count) {
     }
 }
 
+// funcion para imprimir el prompt de la terminal con el directorio actual
+void imprimir_prompt() {
+    char cwd[1024];
+    char *home = getenv("HOME");
+
+    // imprimir ~ en vez del path completo de HOME
+    if (home != NULL && getcwd(cwd, sizeof(cwd)) != NULL) {
+        if (strncmp(cwd, home, strlen(home)) == 0) {
+            printf("\e[32mshell\e[0m:\e[34m~%s\e[0m$ ", cwd + strlen(home));
+            return; 
+        }
+    }
+}
+
+
+// manejador de señales para Ctrl+C
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        printf("\n");
+        imprimir_prompt();
+        fflush(stdout);
+    }
+}
+
 int main() {
     char input[MAX_INPUT];
     Comando comandos[MAX_COMMANDS];
 
+    signal(SIGINT, signal_handler); // registrar el manejador de señales para Ctrl+C
+
     while (1) {
-        printf("\e[32mshell\e[0m$ ");
+        imprimir_prompt();
         fflush(stdout); // obliga al sistema a escribir de inmediato el prompt
 
         if (fgets(input, sizeof(input), stdin) == NULL) break;
@@ -189,5 +216,6 @@ int main() {
         ejecutar_comandos(comandos, cmd_count);
     }
 
+    printf("\n");
     return EXIT_SUCCESS;
 }
