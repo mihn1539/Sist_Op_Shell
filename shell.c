@@ -176,6 +176,9 @@ void imprimir_prompt() {
         if (strncmp(cwd, home, strlen(home)) == 0) {
             printf("\e[32mshell\e[0m:\e[34m~%s\e[0m$ ", cwd + strlen(home));
             return; 
+        } else {
+            printf("\e[32mshell\e[0m:\e[34m%s\e[0m$ ", cwd);
+            return;
         }
     }
 }
