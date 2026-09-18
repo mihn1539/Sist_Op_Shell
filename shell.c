@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 64
@@ -22,6 +23,9 @@ typedef struct {
     char *args[MAX_ARGS];
     int arg_count;
     Operador operador;
+    char *entrada;      
+    char *salida;       
+    int modo_append;    
 } Comando;
 
 Operador identificar_operador(const char *pos) {
@@ -69,11 +73,35 @@ int parsear_comandos(char *input, Comando comandos[]) {
         // si se encuentra un operador, reemplazarlo con '\0' para separar el comando
         *pos = '\0';
 
+        comandos[cmd_count].entrada = NULL;
+        comandos[cmd_count].salida = NULL;
+        comandos[cmd_count].modo_append = 0;
+
         char *token = strtok(inicio, " ");
         int arg_count = 0;
 
         // almacenar los args del comando
         while (token != NULL && arg_count < MAX_ARGS - 1) {
+            
+            // Detección redirecciones entrada/salida.
+            if(strcmp(token, ">") == 0){
+                token = strtok(NULL, " \t");
+                comandos[cmd_count].salida = token;
+                token = strtok(NULL, " \t");
+                continue;
+            }else if(strcmp(token, ">>") == 0){
+                token = strtok(NULL, " \t");
+                comandos[cmd_count].salida = token;
+                comandos[cmd_count].modo_append = 1;
+                token = strtok(NULL, " \t");
+                continue;
+            }else if(strcmp(token, "<") == 0){
+                token = strtok(NULL, " \t");
+                comandos[cmd_count].entrada = token;
+                token = strtok(NULL, " \t");
+                continue;
+            }
+
             comandos[cmd_count].args[arg_count++] = token;
             token = strtok(NULL, " \t");
         }
@@ -82,7 +110,9 @@ int parsear_comandos(char *input, Comando comandos[]) {
         comandos[cmd_count].arg_count = arg_count;
         comandos[cmd_count].operador = op;
 
-        if (arg_count > 0) cmd_count++; // solo contar comandos con argumentos validos
+        if (arg_count > 0 || comandos[cmd_count].entrada || comandos[cmd_count].salida) {
+            cmd_count++; 
+        }
 
         if (op == OP_NONE) break;
 
@@ -95,15 +125,15 @@ int parsear_comandos(char *input, Comando comandos[]) {
 }
 
 // funcion para ejecutar un comando individual
-int ejecutar_comando(char *args[]) {
-    if (args[0] == NULL) return 0;
+int ejecutar_comando(Comando *cmd) {
+    if (cmd->args[0] == NULL) return 0;
 
     // manejar el comando "cd"
-    if (strcmp(args[0], "cd") == 0) {
+    if (strcmp(cmd->args[0], "cd") == 0) {
         const char *path;
 
         // si el argumento es nulo o "~", se cambia al directorio HOME
-        if (args[1] == NULL || strcmp(args[1], "~") == 0) {
+        if (cmd->args[1] == NULL || strcmp(cmd->args[1], "~") == 0) {
             path = getenv("HOME");
 
             if (path == NULL) {
@@ -111,7 +141,7 @@ int ejecutar_comando(char *args[]) {
                 return EXIT_FAILURE;
             }
         } else {
-            path = args[1];
+            path = cmd->args[1];
         }
 
         if (chdir(path) < 0) {
@@ -132,7 +162,52 @@ int ejecutar_comando(char *args[]) {
 
     // el proceso hijo ejecuta el comando solicitado
     if (pid == 0) {
-        execvp(args[0], args);
+        
+        // Revisión direcciones entrada/salida.
+        if(cmd->entrada != NULL){
+            int archivo_entrada = open(cmd->entrada, O_RDONLY);
+            if (archivo_entrada == -1){
+                printf("Error al intentar operar el archivo de entrada.\n");
+                exit(EXIT_FAILURE);
+            }
+            if(dup2(archivo_entrada, 0) == -1){
+                printf("Error al intentar conectar el archivo como entrada.\n");
+                exit(EXIT_FAILURE);
+            }
+            if (close(archivo_entrada) == -1) {
+                perror("Advertencia: No se pudo cerrar el descriptor de archivo");
+            }
+        }
+
+        if(cmd->salida != NULL && cmd->modo_append == 0){
+            int archivo_salida = open(cmd->salida, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (archivo_salida == -1){
+                printf("Error al abrir el archivo de salida.\n");
+                exit(EXIT_FAILURE);
+            }
+            if(dup2(archivo_salida, 1) == -1){
+                printf("Error al intentar conectar el archivo como salida.\n"); 
+                exit(EXIT_FAILURE);
+            }
+            if (close(archivo_salida) == -1) {
+                perror("Advertencia: No se pudo cerrar el descriptor de archivo");
+            }
+        } else if(cmd->salida != NULL && cmd->modo_append != 0){
+            int archivo_salida = open(cmd->salida, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (archivo_salida == -1){
+                printf("Error al abrir el archivo de salida.\n");
+                exit(EXIT_FAILURE);
+            }
+            if(dup2(archivo_salida, 1) == -1){
+                printf("Error al intentar conectar el archivo como salida.\n");
+                exit(EXIT_FAILURE);
+            }
+            if (close(archivo_salida) == -1) {
+                perror("Advertencia: No se pudo cerrar el descriptor de archivo");
+            }
+        }
+
+        execvp(cmd->args[0], cmd->args);
         perror("\e[31mexec fallido\e[0m");
         exit(EXIT_FAILURE);
     }
@@ -162,7 +237,7 @@ void ejecutar_comandos(Comando comandos[], int cmd_count) {
             if (last_op == OP_OR && ultimo_exit_code == EXIT_SUCCESS) continue;
         }
 
-        ultimo_exit_code = ejecutar_comando(comandos[i].args);
+        ultimo_exit_code = ejecutar_comando(&comandos[i]);
     }
 }
 
