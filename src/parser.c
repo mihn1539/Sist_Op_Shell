@@ -4,6 +4,47 @@
 
 static char entrada_normalizada[MAX_INPUT];
 
+// funcion para obtener el proximo token, manejando comillas simples y dobles
+static char *siguiente_token(char **cursor) {
+    char *inicio = *cursor;
+    char *token;
+    char *destino;
+    char comilla = '\0';
+
+    while (*inicio == ' ' || *inicio == '\t')
+        inicio++;
+
+    if (*inicio == '\0') {
+        *cursor = inicio;
+        return NULL;
+    }
+
+    token = inicio;
+    destino = inicio;
+    while (*inicio != '\0') {
+        if (comilla != '\0') {
+            if (*inicio == comilla)
+                comilla = '\0';
+            else
+                *destino++ = *inicio;
+        } else if (*inicio == '\'' || *inicio == '"') {
+            comilla = *inicio;
+        } else if (*inicio == ' ' || *inicio == '\t') {
+            break;
+        } else {
+            *destino++ = *inicio;
+        }
+        inicio++;
+    }
+
+    int habia_separador = *inicio != '\0';
+    *destino = '\0';
+    if (habia_separador)
+        inicio++;
+    *cursor = inicio;
+    return token;
+}
+
 static void normalizar_redirecciones(const char *input) {
     size_t destino = 0;
 
@@ -102,7 +143,8 @@ int parsear_comandos(char *input, Comando comandos[]) {
         comandos[cmd_count].modo_append = 0;
         comandos[cmd_count].background = 0;
 
-        char *token = strtok(inicio, " ");
+        char *cursor = inicio;
+        char *token = siguiente_token(&cursor);
         int arg_count = 0;
 
         while (token != NULL && arg_count < MAX_ARGS - 1) {
@@ -110,36 +152,36 @@ int parsear_comandos(char *input, Comando comandos[]) {
             // Redireccion de salida
             if (strcmp(token, ">") == 0) {
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 comandos[cmd_count].salida = token;
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 continue;
             }
 
             // Redireccion de salida append
             else if (strcmp(token, ">>") == 0) {
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 comandos[cmd_count].salida = token;
                 comandos[cmd_count].modo_append = 1;
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 continue;
             }
 
             // Redireccion de entrada
             else if (strcmp(token, "<") == 0) {
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 comandos[cmd_count].entrada = token;
 
-                token = strtok(NULL, " \t");
+                token = siguiente_token(&cursor);
                 continue;
             }
 
             comandos[cmd_count].args[arg_count++] = token;
-            token = strtok(NULL, " \t");
+            token = siguiente_token(&cursor);
         }
 
         comandos[cmd_count].args[arg_count] = NULL;

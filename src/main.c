@@ -43,10 +43,8 @@ int main(void) {
         imprimir_prompt();
         fflush(stdout);
 
-        if (fgets(input, sizeof(input), stdin) == NULL)
+        if (leer_linea(input, sizeof(input)) == -1)
             break;
-
-        input[strcspn(input, "\n")] = '\0';
 
         // Entrada vacia
         if (strlen(input) == 0)

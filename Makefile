@@ -7,11 +7,12 @@ SRC = src/main.c \
 	src/signals.c \
 	src/background.c \
 	src/redirection.c \
-      src/utils.c
+      src/utils.c \
+	  src/pmon.c
 
 OBJ = $(SRC:.c=.o)
 
-TARGET = shell
+TARGET = mishell
 
 all: $(TARGET)
 
