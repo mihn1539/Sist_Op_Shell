@@ -7,6 +7,7 @@
 #include "background.h"
 #include "signals.h"
 #include "utils.h"
+#include "pmon.h"
 
 static int obtener_codigo_salida(char *argumento, int *codigo) {
     char *final;
@@ -52,8 +53,7 @@ int main(void) {
             continue;
 
         // Parsear comandos
-        int cmd_count =
-            parsear_comandos(input, comandos);
+        int cmd_count = parsear_comandos(input, comandos);
 
         if (cmd_count == 1 && comandos[0].operador == OP_NONE &&
             strcmp(comandos[0].args[0], "exit") == 0) {
@@ -68,6 +68,17 @@ int main(void) {
         if (cmd_count == 1 && comandos[0].operador == OP_NONE &&
             strcmp(comandos[0].args[0], "jobs") == 0) {
             listar_jobs();
+            continue;
+        }
+
+        // ---> Comando pmon
+        if (cmd_count == 1 && comandos[0].operador == OP_NONE &&
+            strcmp(comandos[0].args[0], "pmon") == 0) {
+            int segundos = 2; // Valor por defecto
+            if (comandos[0].args[1] != NULL) {
+                segundos = atoi(comandos[0].args[1]);
+            }
+            ejecutar_pmon(segundos);
             continue;
         }
 

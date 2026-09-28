@@ -158,3 +158,25 @@ void listar_jobs(void) {
 
     sigprocmask(SIG_UNBLOCK, &mascara, NULL);
 }
+
+int obtener_procesos_activos(ProcesoInfo *lista, int max_procesos) {
+    sigset_t mascara;
+    sigaddset(&mascara, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &mascara, NULL);
+
+    int count = 0;
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (jobs[i].remaining > 0) {
+            for (int j = 0; j < MAX_COMMANDS; j++) {
+                if (jobs[i].pids[j] > 0 && count < max_procesos) {
+                    lista[count].pid = jobs[i].pids[j];
+                    snprintf(lista[count].comando, sizeof(lista[count].comando), "%s", jobs[i].command);
+                    count++;
+                }
+            }
+        }
+    }
+
+    sigprocmask(SIG_UNBLOCK, &mascara, NULL);
+    return count;
+}
