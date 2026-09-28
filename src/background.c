@@ -7,7 +7,6 @@
 
 #include "background.h"
 
-#define MAX_JOBS 64
 #define JOB_COMMAND_LENGTH 128
 
 typedef struct {
