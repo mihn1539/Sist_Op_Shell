@@ -98,7 +98,7 @@ static int leer_linea_terminal(char *buffer, size_t capacidad) {
                 escribir_bytes("\b", 1);
                 escribir_bytes(buffer + cursor, largo - cursor);
                 escribir_bytes(" ", 1);
-                for (size_t posicion = cursor; posicion < largo; posicion++)
+                for (size_t posicion = cursor; posicion <= largo; posicion++)
                     escribir_bytes("\b", 1);
             }
             continue;

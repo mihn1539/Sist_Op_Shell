@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "parser.h"
@@ -101,8 +102,12 @@ int get_largo_operador(Operador op) {
     }
 }
 
-int parsear_comandos(char *input, Comando comandos[]) {
+int parsear_comandos(char *input, Comando **comandos) {
     int cmd_count = 0;
+    size_t capacidad = 0;
+    Comando *lista = NULL;
+
+    *comandos = NULL;
     normalizar_redirecciones(input);
     char *inicio = entrada_normalizada;
 
@@ -120,7 +125,19 @@ int parsear_comandos(char *input, Comando comandos[]) {
             entrada_normalizada[--largo] = '\0';
     }
 
-    while (*inicio != '\0' && cmd_count < MAX_COMMANDS) {
+    while (*inicio != '\0') {
+
+        if ((size_t)cmd_count == capacidad) {
+            size_t nueva_capacidad = capacidad == 0 ? 4 : capacidad * 2;
+            Comando *nueva_lista = realloc(lista,
+                                           nueva_capacidad * sizeof(*lista));
+            if (nueva_lista == NULL) {
+                free(lista);
+                return -1;
+            }
+            lista = nueva_lista;
+            capacidad = nueva_capacidad;
+        }
 
         char *pos = inicio;
         Operador op = OP_NONE;
@@ -138,10 +155,10 @@ int parsear_comandos(char *input, Comando comandos[]) {
         // Separar el comando del operador
         *pos = '\0';
 
-        comandos[cmd_count].entrada = NULL;
-        comandos[cmd_count].salida = NULL;
-        comandos[cmd_count].modo_append = 0;
-        comandos[cmd_count].background = 0;
+        lista[cmd_count].entrada = NULL;
+        lista[cmd_count].salida = NULL;
+        lista[cmd_count].modo_append = 0;
+        lista[cmd_count].background = 0;
 
         char *cursor = inicio;
         char *token = siguiente_token(&cursor);
@@ -153,7 +170,7 @@ int parsear_comandos(char *input, Comando comandos[]) {
             if (strcmp(token, ">") == 0) {
 
                 token = siguiente_token(&cursor);
-                comandos[cmd_count].salida = token;
+                lista[cmd_count].salida = token;
 
                 token = siguiente_token(&cursor);
                 continue;
@@ -163,8 +180,8 @@ int parsear_comandos(char *input, Comando comandos[]) {
             else if (strcmp(token, ">>") == 0) {
 
                 token = siguiente_token(&cursor);
-                comandos[cmd_count].salida = token;
-                comandos[cmd_count].modo_append = 1;
+                lista[cmd_count].salida = token;
+                lista[cmd_count].modo_append = 1;
 
                 token = siguiente_token(&cursor);
                 continue;
@@ -174,26 +191,25 @@ int parsear_comandos(char *input, Comando comandos[]) {
             else if (strcmp(token, "<") == 0) {
 
                 token = siguiente_token(&cursor);
-                comandos[cmd_count].entrada = token;
+                lista[cmd_count].entrada = token;
 
                 token = siguiente_token(&cursor);
                 continue;
             }
 
-            comandos[cmd_count].args[arg_count++] = token;
+            lista[cmd_count].args[arg_count++] = token;
             token = siguiente_token(&cursor);
         }
 
-        comandos[cmd_count].args[arg_count] = NULL;
-        comandos[cmd_count].arg_count = arg_count;
-        comandos[cmd_count].operador = op;
+        lista[cmd_count].args[arg_count] = NULL;
+        lista[cmd_count].arg_count = arg_count;
+        lista[cmd_count].operador = op;
 
         if (op == OP_NONE)
-            comandos[cmd_count].background = background;
+            lista[cmd_count].background = background;
 
-        if (arg_count > 0 ||
-            comandos[cmd_count].entrada ||
-            comandos[cmd_count].salida) {
+        if (arg_count > 0 || lista[cmd_count].entrada ||
+            lista[cmd_count].salida) {
 
             cmd_count++;
         }
@@ -207,5 +223,6 @@ int parsear_comandos(char *input, Comando comandos[]) {
             inicio++;
     }
 
+    *comandos = lista;
     return cmd_count;
 }

@@ -7,6 +7,6 @@ Operador identificar_operador(const char *pos);
 
 int get_largo_operador(Operador op);
 
-int parsear_comandos(char *input, Comando comandos[]);
+int parsear_comandos(char *input, Comando **comandos);
 
 #endif

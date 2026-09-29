@@ -9,8 +9,6 @@
 #include "background.h"
 #include "signals.h"
 
-#define MAX_PROC_CACHE 64  // Maximo numero de procesos que se guardan en cache para medir el consumo de la CPU
-
 /*
 Estructura para almacenar la lectura previa de un proceso
 Permite calcular la diferencia de tiempo de CPU y tiempo real entre refrescos
@@ -52,7 +50,7 @@ static const char *obtener_estado_str(char state) {
 void ejecutar_pmon(int segundos) {
     if (segundos <= 0) segundos = 2;
 
-    ProcCpuCache cache[MAX_PROC_CACHE];
+    ProcCpuCache *cache = NULL;
     int num_cache = 0;
 
     struct sigaction sa_alrm, sa_int, sa_int_old;
@@ -76,15 +74,29 @@ void ejecutar_pmon(int segundos) {
             // Limpiar la pantalla
             printf("\033[H\033[J");
 
-            ProcesoInfo procs[MAX_JOBS * MAX_COMMANDS];
-            int total_procs = obtener_procesos_activos(procs, MAX_JOBS * MAX_COMMANDS);
+            ProcesoInfo *procs = NULL;
+            int total_procs = obtener_procesos_activos(&procs);
+            if (total_procs == -1) {
+                fprintf(stderr, "No se pudo reservar memoria para pmon\n");
+                break;
+            }
 
             printf("%-8s | %-15s | %-10s | %-12s | %-8s\n",
                    "PID", "COMANDO", "ESTADO", "%CPU (aprox)", "RSS (KB)");
             printf("---------------------------------------------------------------\n");
 
-            ProcCpuCache nuevos_cache[MAX_PROC_CACHE];
+            ProcCpuCache *nuevos_cache = NULL;
             int nuevos_num_cache = 0;
+
+            if (total_procs > 0) {
+                nuevos_cache = malloc((size_t)total_procs *
+                                      sizeof(*nuevos_cache));
+                if (nuevos_cache == NULL) {
+                    free(procs);
+                    fprintf(stderr, "No se pudo reservar memoria para pmon\n");
+                    break;
+                }
+            }
 
             struct timespec ahora;
             clock_gettime(CLOCK_MONOTONIC, &ahora);
@@ -142,20 +154,20 @@ void ejecutar_pmon(int segundos) {
                     }
                 }
 
-                if (nuevos_num_cache < MAX_PROC_CACHE) {
-                    nuevos_cache[nuevos_num_cache].pid = pid;
-                    nuevos_cache[nuevos_num_cache].ticks = total_ticks;
-                    nuevos_cache[nuevos_num_cache].time = ahora;
-                    nuevos_num_cache++;
-                }
+                nuevos_cache[nuevos_num_cache].pid = pid;
+                nuevos_cache[nuevos_num_cache].ticks = total_ticks;
+                nuevos_cache[nuevos_num_cache].time = ahora;
+                nuevos_num_cache++;
 
                 printf("%-8d | %-15.15s | %-10s | %-12.1f | %-8ld\n",
                        pid, procs[i].comando, obtener_estado_str(estado_char),
                        cpu_pct, rss_kb);
             }
 
-            memcpy(cache, nuevos_cache, sizeof(ProcCpuCache) * nuevos_num_cache);
+            free(cache);
+            cache = nuevos_cache;
             num_cache = nuevos_num_cache;
+            free(procs);
             fflush(stdout);
 
             alarm(segundos);
@@ -165,6 +177,7 @@ void ejecutar_pmon(int segundos) {
     }
 
     alarm(0);                  // Desactivar la alarma al salir
+    free(cache);
     instalar_signals_shell();  // Restablecer el comportamiento de SIGINT/SIGQUIT para la shell
     printf("\n");
 }

@@ -3,7 +3,6 @@
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 64
-#define MAX_COMMANDS 32
 
 typedef enum {
     OP_NONE,

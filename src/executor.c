@@ -11,22 +11,61 @@
 #include "redirection.h"
 #include "signals.h"
 
+static void terminar_procesos(pid_t procesos[], int cantidad, pid_t pgid) {
+    if (pgid > 0)
+        kill(-pgid, SIGCONT);
+    for (int i = 0; i < cantidad; i++)
+        kill(procesos[i], SIGTERM);
+
+    for (int i = 0; i < cantidad; i++) {
+        while (waitpid(procesos[i], NULL, 0) == -1 && errno == EINTR)
+            ;
+    }
+}
+
 // ejecuta el conjunto de comandos con todo el manejo de distintas operaciones
 static int ejecutar_lanzamiento(Comando comandos[], int inicio, int fin,
                                 int background) {
     int cantidad = fin - inicio + 1;
-    int pipes[cantidad > 1 ? cantidad - 1 : 1][2];
-    pid_t procesos[cantidad];
+    int (*pipes)[2] = NULL;
+    pid_t *procesos = malloc((size_t)cantidad * sizeof(*procesos));
+    EstadoProceso *estados = calloc((size_t)cantidad, sizeof(*estados));
     pid_t pgid = 0;
     sigset_t mascara_anterior;
 
-    if (bloquear_sigchld(&mascara_anterior) == -1)
+    if (procesos == NULL || estados == NULL) {
+        free(procesos);
+        free(estados);
         return -1;
+    }
+
+    if (cantidad > 1) {
+        pipes = malloc((size_t)(cantidad - 1) * sizeof(*pipes));
+        if (pipes == NULL) {
+            free(procesos);
+            free(estados);
+            return -1;
+        }
+    }
+
+    if (bloquear_sigchld(&mascara_anterior) == -1) {
+        free(pipes);
+        free(procesos);
+        free(estados);
+        return -1;
+    }
 
     for (int i = 0; i < cantidad - 1; i++) {
         if (pipe(pipes[i]) == -1) {
             perror("Error al crear la pipe");
+            for (int j = 0; j < i; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
             restaurar_mascara_signals(&mascara_anterior);
+            free(pipes);
+            free(procesos);
+            free(estados);
             return -1;
         }
     }
@@ -39,7 +78,11 @@ static int ejecutar_lanzamiento(Comando comandos[], int inicio, int fin,
                 close(pipes[j][0]);
                 close(pipes[j][1]);
             }
+            terminar_procesos(procesos, i, pgid);
             restaurar_mascara_signals(&mascara_anterior);
+            free(pipes);
+            free(procesos);
+            free(estados);
             return -1;
         }
 
@@ -48,12 +91,10 @@ static int ejecutar_lanzamiento(Comando comandos[], int inicio, int fin,
             restaurar_signals_hijo();
 
             // si el comando se ejecuta en segundo plano, establecer el grupo de procesos del hijo
-            if (background) {
-                if (i == 0)
-                    setpgid(0, 0);
-                else
-                    setpgid(0, pgid);
-            }
+            if (i == 0)
+                setpgid(0, 0);
+            else
+                setpgid(0, pgid);
 
             // redirigir la entrada y salida estándar según corresponda para el comando actual
             if (i > 0 && dup2(pipes[i - 1][0], STDIN_FILENO) == -1)
@@ -75,8 +116,7 @@ static int ejecutar_lanzamiento(Comando comandos[], int inicio, int fin,
 
         if (i == 0)
             pgid = procesos[i];
-        if (background)
-            setpgid(procesos[i], pgid);
+        setpgid(procesos[i], pgid);
     }
 
     for (int i = 0; i < cantidad - 1; i++) {
@@ -86,32 +126,75 @@ static int ejecutar_lanzamiento(Comando comandos[], int inicio, int fin,
 
     // si el comando se ejecuta en segundo plano, registrar el job y devolver inmediatamente el control al usuario
     if (background) {
-        if (registrar_job(comandos, inicio, fin, pgid, procesos, cantidad) == -1) {
-            kill(-pgid, SIGTERM);
+        if (registrar_job(comandos, inicio, fin, pgid, procesos, cantidad,
+                          estados) == -1) {
+            terminar_procesos(procesos, cantidad, pgid);
             restaurar_mascara_signals(&mascara_anterior);
+            free(pipes);
+            free(procesos);
+            free(estados);
             return -1;
         }
         restaurar_mascara_signals(&mascara_anterior);
+        free(pipes);
+        free(procesos);
+        free(estados);
         return EXIT_SUCCESS;
     }
 
+    if (entregar_terminal(pgid) == -1) {
+        terminar_procesos(procesos, cantidad, pgid);
+        restaurar_mascara_signals(&mascara_anterior);
+        free(pipes);
+        free(procesos);
+        free(estados);
+        return -1;
+    }
+
     int ultimo_estado = EXIT_FAILURE;
+    int hay_detenidos = 0;
 
     // esperar a que todos los procesos hijos terminen y obtener el estado de salida del último proceso
     for (int i = 0; i < cantidad; i++) {
         int status;
-        while (waitpid(procesos[i], &status, 0) == -1) {
+        while (waitpid(procesos[i], &status, WUNTRACED) == -1) {
             if (errno != EINTR) {
+                recuperar_terminal();
                 restaurar_mascara_signals(&mascara_anterior);
+                free(pipes);
+                free(procesos);
+                free(estados);
                 return -1;
             }
+        }
+        if (WIFSTOPPED(status)) {
+            estados[i] = PROCESO_DETENIDO;
+            hay_detenidos = 1;
+        } else {
+            estados[i] = PROCESO_TERMINADO;
         }
         if (i == cantidad - 1 && WIFEXITED(status))
             ultimo_estado = WEXITSTATUS(status);
     }
 
     // restaurar la máscara de señales anterior para permitir que se manejen las señales nuevamente
+    recuperar_terminal();
+    if (hay_detenidos) {
+        if (registrar_job(comandos, inicio, fin, pgid, procesos, cantidad,
+                          estados) == -1) {
+            terminar_procesos(procesos, cantidad, pgid);
+            restaurar_mascara_signals(&mascara_anterior);
+            free(pipes);
+            free(procesos);
+            free(estados);
+            return -1;
+        }
+        ultimo_estado = 128 + SIGTSTP;
+    }
     restaurar_mascara_signals(&mascara_anterior);
+    free(pipes);
+    free(procesos);
+    free(estados);
     return ultimo_estado;
 }
 
@@ -155,9 +238,10 @@ int ejecutar_comandos(Comando comandos[], int cmd_count) {
         }
 
         // si el comando es "cd" y no está en una tubería, ejecutarlo directamente y actualizar el estado de salida
-        if (strcmp(comandos[i].args[0], "cd") == 0 && fin == i)
+        if (comandos[i].arg_count > 0 &&
+            strcmp(comandos[i].args[0], "cd") == 0 && fin == i)
             ultimo_estado = ejecutar_comando(&comandos[i]);
-        else
+        else if (comandos[i].arg_count > 0)
             ultimo_estado = ejecutar_lanzamiento(
                 comandos, i, fin, comandos[fin].background);
 
