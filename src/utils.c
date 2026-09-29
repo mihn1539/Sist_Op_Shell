@@ -122,6 +122,12 @@ static int leer_linea_terminal(char *buffer, size_t capacidad) {
                                  indice_historial == historial_cantidad
                                      ? ""
                                      : historial[indice_historial]);
+            } else if (secuencia[1] == 'C' && cursor < largo) {
+                escribir_bytes("\033[C", 3);
+                cursor++;
+            } else if (secuencia[1] == 'D' && cursor > 0) {
+                escribir_bytes("\033[D", 3);
+                cursor--;
             }
             continue;
         }
